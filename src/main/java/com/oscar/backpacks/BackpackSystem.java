@@ -225,20 +225,58 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         }
         int t = tier(item);
         BackpackHolder holder = new BackpackHolder(id);
-        String title = getConfig().getString("settings.inventory-title", "Mochila %tier%").replace("%tier%", NAMES[t]);
-        title = ChatColor.translateAlternateColorCodes('&', title);
-        Inventory inventory = Bukkit.createInventory(holder, sizeForTier(t), title);
-        holder.inventory(inventory);
-        inventory.setContents(loadContents(id, sizeForTier(t)));
-        openInventories.put(id, inventory);
         currentlyOpen.add(id);
         refreshBackpackLore(player, id);
+        openBackpackPage(player, holder, t);
+    }
+
+    private void openBackpackPage(Player player, BackpackHolder holder, int tier) {
+        int total = sizeForTier(tier);
+        boolean paged = total > 54;
+        int visible = paged ? (holder.page() == 0 ? 45 : total - 45) : total;
+        String title = getConfig().getString("settings.inventory-title", "Mochila %tier%").replace("%tier%", NAMES[tier]);
+        if (paged) title += holder.page() == 0 ? " (1/2)" : " (2/2)";
+        Inventory inventory = Bukkit.createInventory(holder, paged ? 54 : total, ChatColor.translateAlternateColorCodes('&', title));
+        holder.inventory(inventory);
+        ItemStack[] all = loadContents(holder.backpackId(), total);
+        int offset = paged && holder.page() == 1 ? 45 : 0;
+        for (int i = 0; i < visible; i++) inventory.setItem(i, all[offset + i]);
+        if (paged) {
+            ItemStack nav = new ItemStack(Material.ARROW);
+            ItemMeta meta = nav.getItemMeta();
+            meta.setDisplayName(holder.page() == 0 ? ChatColor.GREEN + "Siguiente página" : ChatColor.YELLOW + "Página anterior");
+            nav.setItemMeta(meta);
+            inventory.setItem(49, nav);
+        }
+        openInventories.put(holder.backpackId(), inventory);
         player.openInventory(inventory);
+    }
+
+    private void saveVisiblePage(BackpackHolder holder, Inventory inventory, int tier) {
+        int total = sizeForTier(tier);
+        ItemStack[] all = loadContents(holder.backpackId(), total);
+        boolean paged = total > 54;
+        int offset = paged && holder.page() == 1 ? 45 : 0;
+        int visible = paged ? (holder.page() == 0 ? 45 : total - 45) : total;
+        for (int i = 0; i < visible; i++) all[offset + i] = inventory.getItem(i);
+        saveContents(holder.backpackId(), all);
+        persist();
     }
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getView().getTopInventory().getHolder(false) instanceof BackpackHolder holder)) return;
+        if (event.getRawSlot() < event.getView().getTopInventory().getSize()) {
+            BackpackHolder holder = (BackpackHolder) event.getView().getTopInventory().getHolder(false);
+            int tier = tierFromOpenBackpack(holder.backpackId());
+            if (tier >= 0 && sizeForTier(tier) > 54 && event.getRawSlot() == 49) {
+                event.setCancelled(true);
+                saveVisiblePage(holder, event.getView().getTopInventory(), tier);
+                holder.page(holder.page() == 0 ? 1 : 0);
+                openBackpackPage((Player) event.getWhoClicked(), holder, tier);
+                return;
+            }
+        }
         ItemStack current = event.getCurrentItem();
         if (getConfig().getBoolean("settings.prevent-nesting", true) && isBackpack(current)) {
             event.setCancelled(true);
@@ -258,11 +296,21 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
 
     @EventHandler public void onClose(InventoryCloseEvent event) {
         if (!(event.getInventory().getHolder(false) instanceof BackpackHolder holder)) return;
-        saveContents(holder.backpackId(), event.getInventory().getContents());
+        int tier = tierFromOpenBackpack(holder.backpackId());
+        if (tier >= 0) saveVisiblePage(holder, event.getInventory(), tier);
         openInventories.remove(holder.backpackId());
         currentlyOpen.remove(holder.backpackId());
         persist();
         if (event.getPlayer() instanceof Player player) refreshBackpackLore(player, holder.backpackId());
+    }
+
+    private int tierFromOpenBackpack(UUID id) {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            for (ItemStack item : player.getInventory().getContents()) {
+                if (id.equals(backpackId(item))) return tier(item);
+            }
+        }
+        return -1;
     }
 
     private ItemStack[] loadContents(UUID id, int size) {
