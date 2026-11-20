@@ -11,6 +11,8 @@ import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.BlockStateMeta;
+import org.bukkit.block.ShulkerBox;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
 import org.bukkit.persistence.PersistentDataType;
@@ -82,7 +84,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             upgrade.shape("IMI", "IBI", "III");
             upgrade.setIngredient('I', UPGRADE_MATERIALS[next]);
             upgrade.setIngredient('M', Material.AMETHYST_SHARD);
-            upgrade.setIngredient('B', Material.BUNDLE);
+            upgrade.setIngredient('B', Material.SHULKER_BOX);
             getServer().addRecipe(upgrade);
         }
     }
@@ -117,7 +119,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
     }
 
     public ItemStack createBackpack(int tier, UUID id) {
-        Material base = Material.BUNDLE;
+        Material base = Material.SHULKER_BOX;
         ItemStack item = new ItemStack(base);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(ChatColor.GOLD + "Mochila " + NAMES[tier]);
@@ -126,6 +128,17 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         meta.getPersistentDataContainer().set(tierKey, PersistentDataType.INTEGER, tier);
         // Requiere el paquete de recursos BackpackSystem-Resources.zip.
         meta.setItemModel(new NamespacedKey("backpacks", "backpack_" + TIERS[tier]));
+        // Minecraft muestra la vista previa nativa de contenido de las cajas de shulker.
+        // La vista previa visual admite 27 espacios; el inventario real sigue guardándose
+        // completo por UUID en backpacks.yml (hasta 45 espacios).
+        if (meta instanceof BlockStateMeta blockMeta && blockMeta.getBlockState() instanceof ShulkerBox shulker) {
+            ItemStack[] stored = loadContents(id, sizeForTier(tier));
+            ItemStack[] preview = new ItemStack[27];
+            System.arraycopy(stored, 0, preview, 0, Math.min(stored.length, preview.length));
+            shulker.getInventory().setContents(preview);
+            blockMeta.setBlockState(shulker);
+            meta = blockMeta;
+        }
         item.setItemMeta(meta);
         return item;
     }
