@@ -1,0 +1,15 @@
+name: BackpackSystem
+version: 1.0.0
+main: com.oscar.backpacks.BackpackSystem
+api-version: '26.3'
+author: Oscar
+description: Mochilas con inventario persistente, mejoras y texturas personalizadas.
+commands:
+  backpack:
+    description: Administra las mochilas.
+    usage: /backpack <give|module|reload>
+    permission: backpack.admin
+permissions:
+  backpack.admin:
+    description: Permite entregar mochilas y módulos.
+    default: op

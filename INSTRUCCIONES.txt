@@ -1,0 +1,269 @@
+============================================================
+BACKPACKSYSTEM 1.0.0 - INSTRUCCIONES COMPLETAS
+Minecraft Java 26.3 | Paper 26.3 | Sin mods
+============================================================
+
+1. QUE INCLUYE EL PROYECTO
+--------------------------
+Este proyecto contiene el código fuente del plugin y el paquete de recursos.
+
+- src/main/java/com/oscar/backpacks/BackpackSystem.java
+  Clase principal. Registra recetas, crea los objetos, detecta el clic derecho,
+  abre los inventarios, impide meter mochilas dentro de mochilas y guarda el contenido.
+
+- src/main/java/com/oscar/backpacks/BackpackHolder.java
+  Identifica el inventario abierto como una mochila y conserva su UUID.
+
+- src/main/resources/plugin.yml
+  Nombre, versión, clase principal, comando y permisos del plugin.
+
+- src/main/resources/config.yml
+  Capacidades, título del inventario y opción para impedir mochilas anidadas.
+
+- resource-pack/
+  Texturas PNG, modelos de objetos y pack.mcmeta para Java 26.3.
+
+- build.gradle.kts
+  Configuración de compilación. Utiliza Paper API 26.3 y Java 25.
+
+NOTA: Este primer paquete es el proyecto fuente. No incluye un JAR compilado.
+Se requiere JDK 25 para compilar correctamente contra Paper 26.3.
+
+2. REQUISITOS
+-------------
+- Servidor Paper 26.3.
+- Java/JDK 25 en el equipo donde se compilará.
+- IntelliJ IDEA Community o Gradle instalado.
+- Acceso a los archivos del servidor Jump Hosting.
+- Una copia de seguridad del mundo.
+
+La API oficial de Paper 26.3 requiere Java 25. No compiles este proyecto con Java 21.
+
+3. COMPILAR EL PLUGIN EN WINDOWS
+--------------------------------
+Opción recomendada: IntelliJ IDEA Community.
+
+1) Instala un JDK 25 (por ejemplo, Eclipse Temurin 25).
+2) Abre IntelliJ IDEA.
+3) Selecciona Open y elige la carpeta BackpackSystem.
+4) Espera a que Gradle importe el proyecto y descargue Paper API.
+5) En la ventana Gradle ejecuta Tasks > build > build.
+6) El JAR se generará en:
+   BackpackSystem\build\libs\BackpackSystem-1.0.0.jar
+
+También puedes abrir una terminal en la carpeta del proyecto y ejecutar:
+   gradle clean build
+
+Comprueba primero:
+   java -version
+Debe indicar versión 25.
+
+4. INSTALAR EL PLUGIN EN JUMP HOSTING
+-------------------------------------
+1) Apaga el servidor desde el panel.
+2) Entra en Archivos.
+3) Abre la carpeta plugins. Si no existe, créala.
+4) Sube BackpackSystem-1.0.0.jar a plugins/.
+5) Inicia el servidor.
+6) Revisa la consola: debe aparecer "BackpackSystem activado".
+7) Al primer inicio se creará:
+   plugins/BackpackSystem/config.yml
+   plugins/BackpackSystem/backpacks.yml
+
+No subas el ZIP del código fuente a plugins. Paper carga el archivo JAR.
+
+5. INSTALAR EL PAQUETE DE RECURSOS
+----------------------------------
+El paquete está en la carpeta resource-pack.
+
+1) Comprime el CONTENIDO de resource-pack en un ZIP, de modo que pack.mcmeta
+   quede directamente en la raíz del ZIP y no dentro de otra carpeta.
+2) Aloja ese ZIP en un servicio HTTPS que permita descarga directa.
+3) Configura el enlace del paquete de recursos en server.properties mediante
+   resource-pack=<URL_HTTPS_DIRECTA>.
+4) Reinicia el servidor y acepta el paquete desde el cliente.
+
+En hosting administrado, si no puedes editar server.properties directamente,
+consulta si Jump permite configurar el resource pack desde el panel.
+
+El formato de recursos incluido es 97.1, correspondiente a Java 26.3.
+Si actualizas Minecraft, comprueba el formato del paquete antes de cambiar min_format
+/max_format. No basta con cambiar el número: también pueden cambiar los archivos JSON.
+
+6. RECETAS INCLUIDAS EN ESTA PRIMERA BASE
+-----------------------------------------
+MOCHILA BÁSICA
+Patrón de cuadrícula 3x3:
+  L _ L
+  L C L
+  L _ L
+L = cuero
+C = cofre
+_ = espacio vacío
+Resultado: mochila básica con 9 espacios.
+
+MÓDULO DE MEJORA (RECETA PROVISIONAL)
+  I R I
+  R _ R
+  I R I
+I = pepita de hierro
+R = redstone
+_ = espacio vacío
+Resultado: módulo universal.
+
+MEJORAS
+Patrón:
+  MÓD
+  X B X
+  X X X
+
+En la cuadrícula real, MÓD ocupa el centro superior, B la casilla central,
+y las otras siete casillas llevan el mineral del siguiente nivel.
+- Mochila básica + módulo + 7 lingotes de hierro = hierro (18 espacios).
+- Mochila de hierro + módulo + 7 lingotes de oro = oro (27 espacios).
+- Mochila de oro + módulo + 7 diamantes = diamante (36 espacios).
+- Mochila de diamante + módulo + 7 lingotes de netherita = netherita (45 espacios).
+
+La receta básica y la del módulo son decisiones iniciales provisionales. Puedes
+cambiarlas en el método registerRecipes() del archivo BackpackSystem.java.
+
+7. COMANDOS
+------------
+/backpack
+Muestra ayuda.
+
+/backpack give <jugador> <basic|iron|gold|diamond|netherite> [cantidad]
+Entrega mochilas para pruebas. Cada mochila recibe un UUID propio.
+
+/backpack module <jugador> [cantidad]
+Entrega módulos para pruebas.
+
+/backpack reload
+Recarga config.yml. Reiniciar el servidor es preferible después de cambiar recetas.
+
+El permiso backpack.admin viene asignado por defecto a operadores (OP).
+
+8. MODIFICAR CAPACIDADES
+------------------------
+Archivo:
+plugins/BackpackSystem/config.yml
+
+Ejemplo:
+levels:
+  basic: 9
+  iron: 18
+  gold: 27
+  diamond: 36
+  netherite: 45
+
+Los inventarios de Bukkit deben tener un tamaño múltiplo de 9 y entre 9 y 54.
+Usa 9, 18, 27, 36, 45 o 54. No pongas 10, 15 ni 60.
+Después de cambiar el tamaño, reinicia el servidor.
+
+El código conserva los espacios anteriores al ampliar una mochila. Los espacios
+adicionales aparecen vacíos.
+
+9. CAMBIAR RECETAS
+------------------
+Abre BackpackSystem.java y busca el método:
+   private void registerRecipes()
+
+Receta básica:
+   basicRecipe.shape("L L", "LCL", "L L");
+   basicRecipe.setIngredient('L', Material.LEATHER);
+   basicRecipe.setIngredient('C', Material.CHEST);
+
+Cada cadena representa una fila de la mesa de crafteo. Un espacio entre comillas
+representa una casilla vacía. Cambia las letras y sus ingredientes para modificarla.
+
+Receta del módulo:
+   moduleRecipe.shape("IRI", "R R", "IRI");
+   moduleRecipe.setIngredient('I', Material.IRON_NUGGET);
+   moduleRecipe.setIngredient('R', Material.REDSTONE);
+
+Para cambiar ingredientes utiliza nombres Material válidos de Bukkit/Paper.
+Después de editar Java, vuelve a compilar y sustituye el JAR anterior.
+
+10. CAMBIAR NOMBRES Y APARIENCIA
+--------------------------------
+En BackpackSystem.java busca:
+   TIERS
+   NAMES
+
+TIERS contiene los identificadores internos: basic, iron, gold, diamond, netherite.
+NAMES contiene los nombres que aparecen en pantalla.
+No cambies los identificadores sin actualizar también los nombres de los archivos
+JSON del paquete de recursos.
+
+Las imágenes PNG están en:
+resource-pack/assets/backpacks/textures/item/
+
+Archivos:
+backpack_basic.png
+backpack_iron.png
+backpack_gold.png
+backpack_diamond.png
+backpack_netherite.png
+upgrade_module.png
+
+Puedes reemplazar las imágenes manteniendo exactamente esos nombres y formato PNG.
+Recomendación: usa imágenes cuadradas de 32x32 o 64x64 píxeles con transparencia.
+
+Los modelos están en:
+resource-pack/assets/backpacks/models/item/
+
+Las definiciones de modelo están en:
+resource-pack/assets/backpacks/items/
+
+Cada ItemMeta usa un item model con namespace "backpacks". Por eso las rutas y
+los identificadores deben coincidir.
+
+11. DATOS Y COPIAS DE SEGURIDAD
+-------------------------------
+El contenido de cada mochila se almacena en:
+plugins/BackpackSystem/backpacks.yml
+
+No edites ese archivo manualmente. Los datos están serializados y codificados.
+Haz copia de seguridad de esa carpeta antes de actualizar el plugin o modificarlo.
+No borres backpacks.yml: perderías el contenido guardado de las mochilas.
+
+El UUID distingue una mochila de otra. No copies a mano los datos de UUID ni
+intentes clonar mochilas editando sus componentes.
+
+12. PRUEBAS OBLIGATORIAS ANTES DE USARLO CON AMIGOS
+--------------------------------------------------
+[ ] El servidor arranca sin errores.
+[ ] /backpack give entrega una mochila básica.
+[ ] El clic derecho abre un inventario de 9 espacios.
+[ ] Se pueden guardar y retirar objetos.
+[ ] Al cerrar y volver a abrir, los objetos siguen ahí.
+[ ] Al reiniciar el servidor, los objetos siguen ahí.
+[ ] Dos mochilas diferentes guardan contenidos diferentes.
+[ ] Una mochila no puede guardarse dentro de otra.
+[ ] La receta básica produce una mochila válida.
+[ ] Un módulo normal no puede hacerse pasar por módulo personalizado.
+[ ] Las cuatro mejoras conservan el UUID y el contenido.
+[ ] Las capacidades finales son 18, 27, 36 y 45.
+[ ] Las texturas se ven en el cliente con el paquete aceptado.
+[ ] Se prueba qué pasa al morir, tirar, intercambiar y desconectarse con una mochila.
+
+ESTADO DE VALIDACIÓN
+--------------------
+Este paquete contiene una primera implementación fuente para revisión y compilación.
+No se ha ejecutado todavía en un servidor Paper 26.3 real ni se ha probado con
+varios jugadores. Completa todas las pruebas anteriores en un mundo de copia.
+No lo consideres listo para producción hasta validar especialmente guardado,
+mejoras, duplicación y desconexiones.
+
+13. ACTUALIZACIONES FUTURAS
+---------------------------
+No existe una actualización automática garantizada por Mojang para plugins o
+paquetes de recursos. Al pasar a una nueva versión:
+1) Haz copia del mundo y de plugins/BackpackSystem/.
+2) Comprueba la versión de Java requerida por Paper.
+3) Actualiza la dependencia Paper API en build.gradle.kts.
+4) Revisa cambios de API y compila de nuevo.
+5) Comprueba el formato del paquete de recursos.
+6) Prueba en una copia antes de sustituir el servidor principal.
+
+FIN DEL DOCUMENTO
