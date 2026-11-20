@@ -83,8 +83,8 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         moduleRecipe.setIngredient('R', Material.REDSTONE);
         getServer().addRecipe(moduleRecipe);
 
-        // Recetas de mejora: siete minerales + módulo (arriba-centro) + mochila (centro).
-        for (int next = 1; next < TIERS.length; next++) {
+        // Mejoras normales: hierro, oro y diamante usan el módulo universal.
+        for (int next = 1; next < TIERS.length - 1; next++) {
             NamespacedKey upgradeKey = new NamespacedKey(this, "upgrade_" + TIERS[next]);
             getServer().removeRecipe(upgradeKey);
             ShapedRecipe upgrade = new ShapedRecipe(upgradeKey, createBackpack(next, UUID.randomUUID()));
@@ -94,6 +94,18 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             upgrade.setIngredient('B', Material.PAPER);
             getServer().addRecipe(upgrade);
         }
+
+        // La mejora final se realiza en mesa de herrería: plantilla + mochila diamante + lingote.
+        NamespacedKey netheriteKey = new NamespacedKey(this, "upgrade_netherite");
+        getServer().removeRecipe(netheriteKey);
+        SmithingTransformRecipe netheriteRecipe = new SmithingTransformRecipe(
+                netheriteKey,
+                createBackpack(4, UUID.randomUUID()),
+                new RecipeChoice.MaterialChoice(Material.NETHERITE_UPGRADE_SMITHING_TEMPLATE),
+                new RecipeChoice.MaterialChoice(Material.PAPER),
+                new RecipeChoice.MaterialChoice(Material.NETHERITE_INGOT)
+        );
+        getServer().addRecipe(netheriteRecipe);
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -104,7 +116,10 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             event.getInventory().setResult(createBackpack(0, UUID.randomUUID(), event.getView().getPlayer().getName()));
             return;
         }
-        if (!recipe.getKey().getKey().startsWith("upgrade_")) return;
+        String recipeId = recipe.getKey().getKey();
+        // La receta upgrade_module también empieza con "upgrade_", pero fabrica
+        // el módulo universal y no debe pasar por la validación de mejora de mochilas.
+        if (!Set.of("upgrade_iron", "upgrade_gold", "upgrade_diamond", "upgrade_netherite").contains(recipeId)) return;
         ItemStack[] matrix = event.getInventory().getMatrix();
         if (matrix.length != 9) { event.getInventory().setResult(null); return; }
         // Centro superior = módulo; centro = mochila; los otros siete espacios = mineral.
@@ -123,6 +138,30 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         }
         UUID id = backpackId(bag);
         event.getInventory().setResult(createBackpack(oldTier + 1, id, backpackCreator(bag)));
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onPrepareSmithing(PrepareSmithingEvent event) {
+        SmithingInventory inventory = event.getInventory();
+        ItemStack template = inventory.getInputTemplate();
+        ItemStack base = inventory.getInputEquipment();
+        ItemStack addition = inventory.getInputMineral();
+
+        // Solo una plantilla de mejora de netherita, una mochila diamante auténtica
+        // y un lingote de netherita pueden producir la mochila final.
+        if (template == null || template.getType() != Material.NETHERITE_UPGRADE_SMITHING_TEMPLATE
+                || addition == null || addition.getType() != Material.NETHERITE_INGOT
+                || tier(base) != 3) {
+            event.setResult(null);
+            return;
+        }
+
+        UUID id = backpackId(base);
+        if (id == null) {
+            event.setResult(null);
+            return;
+        }
+        event.setResult(createBackpack(4, id, backpackCreator(base)));
     }
 
     public ItemStack createBackpack(int tier, UUID id) {
@@ -224,6 +263,10 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         if (!isBackpack(item)) return;
         event.setCancelled(true);
         Player player = event.getPlayer();
+        openBackpack(player, item);
+    }
+
+    private void openBackpack(Player player, ItemStack item) {
         UUID id = backpackId(item);
         if (currentlyOpen.contains(id)) {
             player.sendMessage(ChatColor.RED + "Esta mochila ya está abierta por otro jugador.");
@@ -375,8 +418,36 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
     }
 
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("backpack.admin")) { sender.sendMessage(ChatColor.RED + "No tienes permiso."); return true; }
-        if (args.length == 0) { sender.sendMessage(ChatColor.YELLOW + "/backpack give <jugador> <basic|iron|gold|diamond|netherite> [cantidad]"); sender.sendMessage(ChatColor.YELLOW + "/backpack module <jugador> [cantidad]"); return true; }
+        if (args.length > 0 && args[0].equalsIgnoreCase("open")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(ChatColor.RED + "Este comando solo puede usarlo un jugador.");
+                return true;
+            }
+            ItemStack found = null;
+            for (ItemStack item : player.getInventory().getStorageContents()) {
+                if (isBackpack(item)) { found = item; break; }
+            }
+            if (found == null && isBackpack(player.getInventory().getItemInOffHand())) {
+                found = player.getInventory().getItemInOffHand();
+            }
+            if (found == null) {
+                player.sendMessage(ChatColor.RED + "No tienes ninguna mochila en tu inventario.");
+                return true;
+            }
+            openBackpack(player, found);
+            return true;
+        }
+
+        if (!sender.hasPermission("backpack.admin")) {
+            sender.sendMessage(ChatColor.RED + "No tienes permiso para administrar mochilas.");
+            return true;
+        }
+        if (args.length == 0) {
+            sender.sendMessage(ChatColor.YELLOW + "/backpack open");
+            sender.sendMessage(ChatColor.YELLOW + "/backpack give <jugador> <basic|iron|gold|diamond|netherite> [cantidad]");
+            sender.sendMessage(ChatColor.YELLOW + "/backpack module <jugador> [cantidad]");
+            return true;
+        }
         if (args[0].equalsIgnoreCase("reload")) { reloadConfig(); sender.sendMessage(ChatColor.GREEN + "Configuración recargada."); return true; }
         if (args[0].equalsIgnoreCase("module") && args.length >= 2) {
             Player target = Bukkit.getPlayerExact(args[1]);
