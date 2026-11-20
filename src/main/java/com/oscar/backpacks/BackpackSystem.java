@@ -11,6 +11,8 @@ import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import io.papermc.paper.datacomponent.item.ItemContainerContents;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
 import org.bukkit.persistence.PersistentDataType;
@@ -25,14 +27,14 @@ import java.util.*;
  * El contenido se guarda por UUID en backpacks.yml.
  */
 public final class BackpackSystem extends JavaPlugin implements Listener {
-    private NamespacedKey idKey, tierKey, moduleKey;
+    private NamespacedKey idKey, tierKey, moduleKey, creatorKey;
     private final Map<UUID, Inventory> openInventories = new HashMap<>();
     private final Set<UUID> currentlyOpen = new HashSet<>();
     private File dataFile;
     private YamlConfiguration data;
 
     private static final String[] TIERS = {"basic", "iron", "gold", "diamond", "netherite"};
-    private static final int[] DEFAULT_SIZES = {9, 18, 27, 36, 45};
+    private static final int[] DEFAULT_SIZES = {9, 27, 36, 54, 90};
     private static final String[] NAMES = {"Básica", "Hierro", "Oro", "Diamante", "Netherita"};
     private static final Material[] UPGRADE_MATERIALS = {null, Material.IRON_INGOT, Material.GOLD_INGOT, Material.DIAMOND, Material.NETHERITE_INGOT};
 
@@ -41,15 +43,22 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         idKey = new NamespacedKey(this, "backpack_id");
         tierKey = new NamespacedKey(this, "backpack_tier");
         moduleKey = new NamespacedKey(this, "upgrade_module");
+        creatorKey = new NamespacedKey(this, "backpack_creator");
         dataFile = new File(getDataFolder(), "backpacks.yml");
         data = YamlConfiguration.loadConfiguration(dataFile);
         getServer().getPluginManager().registerEvents(this, this);
         registerRecipes();
-        getLogger().info("BackpackSystem activado. Niveles: 9/18/27/36/45.");
+        getLogger().info("BackpackSystem activado. Niveles: 9/27/36/54/90.");
     }
 
     @Override public void onDisable() {
-        for (var entry : openInventories.entrySet()) saveContents(entry.getKey(), entry.getValue().getContents());
+        for (var entry : openInventories.entrySet()) {
+            Inventory inventory = entry.getValue();
+            if (inventory.getHolder(false) instanceof BackpackHolder holder) {
+                int tier = tierFromOpenBackpack(holder.backpackId());
+                if (tier >= 0) saveVisiblePage(holder, inventory, tier);
+            }
+        }
         persist();
     }
 
@@ -82,14 +91,20 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             upgrade.shape("IMI", "IBI", "III");
             upgrade.setIngredient('I', UPGRADE_MATERIALS[next]);
             upgrade.setIngredient('M', Material.AMETHYST_SHARD);
-            upgrade.setIngredient('B', Material.BUNDLE);
+            upgrade.setIngredient('B', Material.PAPER);
             getServer().addRecipe(upgrade);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onPrepareCraft(PrepareItemCraftEvent event) {
-        if (!(event.getRecipe() instanceof ShapedRecipe recipe) || !recipe.getKey().getNamespace().equals(getName().toLowerCase(Locale.ROOT)) || !recipe.getKey().getKey().startsWith("upgrade_")) return;
+        if (!(event.getRecipe() instanceof ShapedRecipe recipe) || !recipe.getKey().getNamespace().equals(getName().toLowerCase(Locale.ROOT))) return;
+        if (recipe.getKey().getKey().equals("backpack_basic")) {
+            // Cada mochila básica fabricada debe recibir un UUID propio.
+            event.getInventory().setResult(createBackpack(0, UUID.randomUUID(), event.getView().getPlayer().getName()));
+            return;
+        }
+        if (!recipe.getKey().getKey().startsWith("upgrade_")) return;
         ItemStack[] matrix = event.getInventory().getMatrix();
         if (matrix.length != 9) { event.getInventory().setResult(null); return; }
         // Centro superior = módulo; centro = mochila; los otros siete espacios = mineral.
@@ -107,21 +122,63 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             }
         }
         UUID id = backpackId(bag);
-        event.getInventory().setResult(createBackpack(oldTier + 1, id));
+        event.getInventory().setResult(createBackpack(oldTier + 1, id, backpackCreator(bag)));
     }
 
     public ItemStack createBackpack(int tier, UUID id) {
-        Material base = Material.BUNDLE;
-        ItemStack item = new ItemStack(base);
+        return createBackpack(tier, id, "Servidor");
+    }
+
+    private ItemStack createBackpack(int tier, UUID id, String creator) {
+        // PAPER no puede colocarse como bloque. La vista previa se añade mediante
+        // el componente CONTAINER de Paper, sin convertir la mochila en una shulker.
+        ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(ChatColor.GOLD + "Mochila " + NAMES[tier]);
-        meta.setLore(List.of(ChatColor.GRAY + "Clic derecho para abrir", ChatColor.DARK_GRAY + "Espacios: " + sizeForTier(tier), ChatColor.DARK_GRAY + "ID: " + id.toString().substring(0, 8)));
+        meta.setLore(List.of(ChatColor.GRAY + "Creada por: " + creator));
         meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, id.toString());
         meta.getPersistentDataContainer().set(tierKey, PersistentDataType.INTEGER, tier);
-        // Requiere el paquete de recursos BackpackSystem-Resources.zip.
+        meta.getPersistentDataContainer().set(creatorKey, PersistentDataType.STRING, creator);
         meta.setItemModel(new NamespacedKey("backpacks", "backpack_" + TIERS[tier]));
         item.setItemMeta(meta);
+
+        // La vista previa viaja dentro del propio objeto: otros jugadores también la ven.
+        // Es solo una copia visual; el inventario real continúa guardándose por UUID en backpacks.yml.
+        List<ItemStack> preview = new ArrayList<>();
+        for (ItemStack stack : loadContents(id, sizeForTier(tier))) {
+            if (stack != null && stack.getType() != Material.AIR) preview.add(stack.clone());
+        }
+        if (!preview.isEmpty()) {
+            item.setData(DataComponentTypes.CONTAINER, ItemContainerContents.containerContents(preview));
+        } else {
+            item.unsetData(DataComponentTypes.CONTAINER);
+        }
         return item;
+    }
+
+    private String backpackCreator(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return "Desconocido";
+        String creator = item.getItemMeta().getPersistentDataContainer().get(creatorKey, PersistentDataType.STRING);
+        return creator == null || creator.isBlank() ? "Desconocido" : creator;
+    }
+
+    /**
+     * Actualiza el objeto mochila del jugador con una copia reciente de la vista previa.
+     * La copia viaja con el objeto al intercambiarlo o entregarlo a otro jugador.
+     */
+    private void refreshBackpackLore(Player player, UUID id) {
+        PlayerInventory inventory = player.getInventory();
+        ItemStack[] contents = inventory.getStorageContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack candidate = contents[slot];
+            if (id.equals(backpackId(candidate))) {
+                inventory.setItem(slot, createBackpack(tier(candidate), id, backpackCreator(candidate)));
+            }
+        }
+        ItemStack offhand = inventory.getItemInOffHand();
+        if (id.equals(backpackId(offhand))) {
+            inventory.setItemInOffHand(createBackpack(tier(offhand), id, backpackCreator(offhand)));
+        }
     }
 
     private int sizeForTier(int tier) {
@@ -174,20 +231,74 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         }
         int t = tier(item);
         BackpackHolder holder = new BackpackHolder(id);
-        String title = getConfig().getString("settings.inventory-title", "Mochila %tier%").replace("%tier%", NAMES[t]);
-        title = ChatColor.translateAlternateColorCodes('&', title);
-        Inventory inventory = Bukkit.createInventory(holder, sizeForTier(t), title);
-        holder.inventory(inventory);
-        inventory.setContents(loadContents(id, sizeForTier(t)));
-        openInventories.put(id, inventory);
         currentlyOpen.add(id);
+        refreshBackpackLore(player, id);
+        openBackpackPage(player, holder, t);
+    }
+
+    private void openBackpackPage(Player player, BackpackHolder holder, int tier) {
+        int total = sizeForTier(tier);
+        boolean paged = total > 54;
+        int visible = paged ? (holder.page() == 0 ? 45 : total - 45) : total;
+        String title = getConfig().getString("settings.inventory-title", "Mochila %tier%").replace("%tier%", NAMES[tier]);
+        if (paged) title += holder.page() == 0 ? " (1/2)" : " (2/2)";
+        Inventory inventory = Bukkit.createInventory(holder, paged ? 54 : total, ChatColor.translateAlternateColorCodes('&', title));
+        holder.inventory(inventory);
+        ItemStack[] all = loadContents(holder.backpackId(), total);
+        int offset = paged && holder.page() == 1 ? 45 : 0;
+        for (int i = 0; i < visible; i++) inventory.setItem(i, all[offset + i]);
+        if (paged) {
+            // Reservamos todos los espacios que no son almacenamiento para evitar
+            // que se coloquen objetos en slots que no se guardan.
+            ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+            ItemMeta fillerMeta = filler.getItemMeta();
+            fillerMeta.setDisplayName(ChatColor.GRAY + " ");
+            filler.setItemMeta(fillerMeta);
+            int firstReservedSlot = visible;
+            for (int slot = firstReservedSlot; slot < 54; slot++) {
+                inventory.setItem(slot, filler);
+            }
+
+            ItemStack nav = new ItemStack(Material.ARROW);
+            ItemMeta meta = nav.getItemMeta();
+            meta.setDisplayName(holder.page() == 0 ? ChatColor.GREEN + "Siguiente página" : ChatColor.YELLOW + "Página anterior");
+            nav.setItemMeta(meta);
+            inventory.setItem(49, nav);
+        }
+        openInventories.put(holder.backpackId(), inventory);
         player.openInventory(inventory);
-        player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.7f, 1.0f);
+        currentlyOpen.add(holder.backpackId());
+    }
+
+    private void saveVisiblePage(BackpackHolder holder, Inventory inventory, int tier) {
+        int total = sizeForTier(tier);
+        ItemStack[] all = loadContents(holder.backpackId(), total);
+        boolean paged = total > 54;
+        int offset = paged && holder.page() == 1 ? 45 : 0;
+        int visible = paged ? (holder.page() == 0 ? 45 : total - 45) : total;
+        for (int i = 0; i < visible; i++) all[offset + i] = inventory.getItem(i);
+        saveContents(holder.backpackId(), all);
+        persist();
     }
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getView().getTopInventory().getHolder(false) instanceof BackpackHolder holder)) return;
+        if (event.getRawSlot() >= 0 && event.getRawSlot() < event.getView().getTopInventory().getSize()) {
+            int tier = tierFromOpenBackpack(holder.backpackId());
+            if (tier >= 0 && sizeForTier(tier) > 54) {
+                int contentSlots = holder.page() == 0 ? 45 : sizeForTier(tier) - 45;
+                if (event.getRawSlot() >= contentSlots) {
+                    event.setCancelled(true);
+                    if (event.getRawSlot() == 49) {
+                        saveVisiblePage(holder, event.getView().getTopInventory(), tier);
+                        holder.page(holder.page() == 0 ? 1 : 0);
+                        openBackpackPage((Player) event.getWhoClicked(), holder, tier);
+                    }
+                    return;
+                }
+            }
+        }
         ItemStack current = event.getCurrentItem();
         if (getConfig().getBoolean("settings.prevent-nesting", true) && isBackpack(current)) {
             event.setCancelled(true);
@@ -198,7 +309,19 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryDrag(InventoryDragEvent event) {
-        if (!(event.getView().getTopInventory().getHolder(false) instanceof BackpackHolder)) return;
+        if (!(event.getView().getTopInventory().getHolder(false) instanceof BackpackHolder holder)) return;
+
+        int tier = tierFromOpenBackpack(holder.backpackId());
+        if (tier >= 0 && sizeForTier(tier) > 54) {
+            int contentSlots = holder.page() == 0 ? 45 : sizeForTier(tier) - 45;
+            for (int rawSlot : event.getRawSlots()) {
+                if (rawSlot >= contentSlots && rawSlot < event.getView().getTopInventory().getSize()) {
+                    event.setCancelled(true);
+                    return;
+                }
+            }
+        }
+
         if (!getConfig().getBoolean("settings.prevent-nesting", true)) return;
         for (ItemStack item : event.getNewItems().values()) {
             if (isBackpack(item)) { event.setCancelled(true); break; }
@@ -207,10 +330,21 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
 
     @EventHandler public void onClose(InventoryCloseEvent event) {
         if (!(event.getInventory().getHolder(false) instanceof BackpackHolder holder)) return;
-        saveContents(holder.backpackId(), event.getInventory().getContents());
+        int tier = tierFromOpenBackpack(holder.backpackId());
+        if (tier >= 0) saveVisiblePage(holder, event.getInventory(), tier);
         openInventories.remove(holder.backpackId());
         currentlyOpen.remove(holder.backpackId());
         persist();
+        if (event.getPlayer() instanceof Player player) refreshBackpackLore(player, holder.backpackId());
+    }
+
+    private int tierFromOpenBackpack(UUID id) {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            for (ItemStack item : player.getInventory().getContents()) {
+                if (id.equals(backpackId(item))) return tier(item);
+            }
+        }
+        return -1;
     }
 
     private ItemStack[] loadContents(UUID id, int size) {
@@ -257,7 +391,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             int t = Arrays.asList(TIERS).indexOf(args[2].toLowerCase(Locale.ROOT));
             if (t < 0) { sender.sendMessage(ChatColor.RED + "Nivel inválido."); return true; }
             int amount = args.length >= 4 ? Math.max(1, Math.min(64, parse(args[3], 1))) : 1;
-            for (int i=0;i<amount;i++) target.getInventory().addItem(createBackpack(t, UUID.randomUUID()));
+            for (int i=0;i<amount;i++) target.getInventory().addItem(createBackpack(t, UUID.randomUUID(), sender instanceof Player p ? p.getName() : "Servidor"));
             sender.sendMessage(ChatColor.GREEN + "Mochila(s) entregada(s) a " + target.getName()); return true;
         }
         sender.sendMessage(ChatColor.RED + "Uso incorrecto. Ejecuta /backpack."); return true;

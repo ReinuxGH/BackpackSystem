@@ -1,15 +1,12 @@
 # BackpackSystem - configuración general
-# Edita estos valores y reinicia el servidor para aplicar cambios.
 settings:
-  # Evita guardar mochilas dentro de otras mochilas (previene bucles y exploits).
   prevent-nesting: true
-  # Nombre del inventario. %tier% se sustituye por el nombre del nivel.
   inventory-title: "Mochila %tier%"
 
-# Capacidades. Deben ser múltiplos de 9 entre 9 y 54.
+ # Capacidades totales. Netherita usa dos páginas de 45 espacios cada una.
 levels:
   basic: 9
-  iron: 18
-  gold: 27
-  diamond: 36
-  netherite: 45
+  iron: 27
+  gold: 36
+  diamond: 54
+  netherite: 90
