@@ -89,7 +89,13 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onPrepareCraft(PrepareItemCraftEvent event) {
-        if (!(event.getRecipe() instanceof ShapedRecipe recipe) || !recipe.getKey().getNamespace().equals(getName().toLowerCase(Locale.ROOT)) || !recipe.getKey().getKey().startsWith("upgrade_")) return;
+        if (!(event.getRecipe() instanceof ShapedRecipe recipe) || !recipe.getKey().getNamespace().equals(getName().toLowerCase(Locale.ROOT))) return;
+        if (recipe.getKey().getKey().equals("backpack_basic")) {
+            // Cada mochila básica fabricada debe recibir un UUID propio.
+            event.getInventory().setResult(createBackpack(0, UUID.randomUUID()));
+            return;
+        }
+        if (!recipe.getKey().getKey().startsWith("upgrade_")) return;
         ItemStack[] matrix = event.getInventory().getMatrix();
         if (matrix.length != 9) { event.getInventory().setResult(null); return; }
         // Centro superior = módulo; centro = mochila; los otros siete espacios = mineral.
