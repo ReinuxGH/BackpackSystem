@@ -6,6 +6,8 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.ItemDisplay;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.event.*;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -32,6 +34,9 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
     private final Set<UUID> currentlyOpen = new HashSet<>();
     private File dataFile;
     private YamlConfiguration data;
+    private final Map<UUID, UUID> equippedBackpacks = new HashMap<>();
+    private final Map<UUID, UUID> displayEntities = new HashMap<>();
+    private BukkitRunnable displayTask;
 
     private static final String[] TIERS = {"basic", "iron", "gold", "diamond", "netherite"};
     private static final int[] DEFAULT_SIZES = {9, 27, 36, 54, 90};
@@ -48,6 +53,8 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         data = YamlConfiguration.loadConfiguration(dataFile);
         getServer().getPluginManager().registerEvents(this, this);
         registerRecipes();
+        loadEquippedBackpacks();
+        startDisplayTask();
         getLogger().info("BackpackSystem activado. Niveles: 9/27/36/54/90.");
     }
 
@@ -59,6 +66,12 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
                 if (tier >= 0) saveVisiblePage(holder, inventory, tier);
             }
         }
+        if (displayTask != null) displayTask.cancel();
+        for (UUID entityId : displayEntities.values()) {
+            var entity = Bukkit.getEntity(entityId);
+            if (entity != null) entity.remove();
+        }
+        displayEntities.clear();
         persist();
     }
 
@@ -225,6 +238,10 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         event.setCancelled(true);
         Player player = event.getPlayer();
         UUID id = backpackId(item);
+        if (player.isSneaking()) {
+            toggleEquippedBackpack(player, item);
+            return;
+        }
         if (currentlyOpen.contains(id)) {
             player.sendMessage(ChatColor.RED + "Esta mochila ya está abierta por otro jugador.");
             return;
@@ -234,6 +251,140 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         currentlyOpen.add(id);
         refreshBackpackLore(player, id);
         openBackpackPage(player, holder, t);
+    }
+
+    private void toggleEquippedBackpack(Player player, ItemStack backpack) {
+        UUID playerId = player.getUniqueId();
+        UUID backpackId = backpackId(backpack);
+        UUID currentlyEquipped = equippedBackpacks.get(playerId);
+        if (backpackId.equals(currentlyEquipped)) {
+            unequipBackpack(playerId, true);
+            player.sendMessage(ChatColor.YELLOW + "Te quitaste la mochila.");
+            return;
+        }
+        if (currentlyEquipped != null) unequipBackpack(playerId, false);
+        equippedBackpacks.put(playerId, backpackId);
+        data.set("equipped." + playerId, backpackId.toString());
+        persist();
+        spawnBackpackDisplay(player, backpack);
+        player.sendMessage(ChatColor.GREEN + "Mochila equipada. Agáchate y haz clic derecho de nuevo para quitártela.");
+    }
+
+    private void unequipBackpack(UUID playerId, boolean clearSaved) {
+        equippedBackpacks.remove(playerId);
+        UUID entityId = displayEntities.remove(playerId);
+        if (entityId != null) {
+            var entity = Bukkit.getEntity(entityId);
+            if (entity != null) entity.remove();
+        }
+        if (clearSaved) {
+            data.set("equipped." + playerId, null);
+            persist();
+        }
+    }
+
+    private void loadEquippedBackpacks() {
+        if (!data.isConfigurationSection("equipped")) return;
+        for (String key : Objects.requireNonNull(data.getConfigurationSection("equipped")).getKeys(false)) {
+            try {
+                UUID playerId = UUID.fromString(key);
+                UUID backpackId = UUID.fromString(data.getString("equipped." + key, ""));
+                equippedBackpacks.put(playerId, backpackId);
+            } catch (IllegalArgumentException ignored) {
+                getLogger().warning("Registro de mochila equipada inválido para " + key);
+            }
+        }
+    }
+
+    private ItemStack findOwnedBackpack(Player player, UUID id) {
+        for (ItemStack stack : player.getInventory().getContents()) {
+            if (id.equals(backpackId(stack))) return stack;
+        }
+        return null;
+    }
+
+    private void spawnBackpackDisplay(Player player, ItemStack backpack) {
+        UUID old = displayEntities.remove(player.getUniqueId());
+        if (old != null) {
+            var previous = Bukkit.getEntity(old);
+            if (previous != null) previous.remove();
+        }
+        Location location = backpackDisplayLocation(player);
+        ItemDisplay display = player.getWorld().spawn(location, ItemDisplay.class, entity -> {
+            entity.setItemStack(backpack.clone());
+            entity.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
+            entity.setBillboard(Display.Billboard.FIXED);
+            entity.setGravity(false);
+            entity.setInvulnerable(true);
+            entity.setSilent(true);
+            entity.setPersistent(false);
+        });
+        displayEntities.put(player.getUniqueId(), display.getUniqueId());
+    }
+
+    private Location backpackDisplayLocation(Player player) {
+        Location base = player.getLocation();
+        org.bukkit.util.Vector backward = base.getDirection().setY(0).normalize().multiply(-0.34);
+        if (backward.lengthSquared() < 0.001) backward = new org.bukkit.util.Vector(0, 0, 0.34);
+        return base.add(backward).add(0, 0.85, 0);
+    }
+
+    private void startDisplayTask() {
+        displayTask = new BukkitRunnable() {
+            @Override public void run() {
+                for (UUID playerId : new HashSet<>(equippedBackpacks.keySet())) {
+                    Player player = Bukkit.getPlayer(playerId);
+                    if (player == null || !player.isOnline() || player.isDead()) continue;
+                    UUID backpackId = equippedBackpacks.get(playerId);
+                    ItemStack backpack = findOwnedBackpack(player, backpackId);
+                    if (backpack == null) {
+                        unequipBackpack(playerId, true);
+                        continue;
+                    }
+                    UUID entityId = displayEntities.get(playerId);
+                    org.bukkit.entity.Entity entity = entityId == null ? null : Bukkit.getEntity(entityId);
+                    if (!(entity instanceof ItemDisplay display) || !display.isValid() || display.getWorld() != player.getWorld()) {
+                        spawnBackpackDisplay(player, backpack);
+                    } else {
+                        display.teleport(backpackDisplayLocation(player));
+                        if (!display.getItemStack().isSimilar(backpack)) display.setItemStack(backpack.clone());
+                    }
+                }
+            }
+        };
+        displayTask.runTaskTimer(this, 1L, 1L);
+    }
+
+    @EventHandler public void onBackpackJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            UUID backpackId = equippedBackpacks.get(player.getUniqueId());
+            if (backpackId == null) return;
+            ItemStack backpack = findOwnedBackpack(player, backpackId);
+            if (backpack == null) unequipBackpack(player.getUniqueId(), true);
+            else spawnBackpackDisplay(player, backpack);
+        }, 2L);
+    }
+
+    @EventHandler public void onBackpackQuit(org.bukkit.event.player.PlayerQuitEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        UUID entityId = displayEntities.remove(playerId);
+        if (entityId != null) {
+            var entity = Bukkit.getEntity(entityId);
+            if (entity != null) entity.remove();
+        }
+        // El registro de equipamiento se conserva para restaurarlo al volver a entrar.
+    }
+
+    @EventHandler public void onBackpackRespawn(org.bukkit.event.player.PlayerRespawnEvent event) {
+        Player player = event.getPlayer();
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            UUID backpackId = equippedBackpacks.get(player.getUniqueId());
+            if (backpackId == null) return;
+            ItemStack backpack = findOwnedBackpack(player, backpackId);
+            if (backpack == null) unequipBackpack(player.getUniqueId(), true);
+            else spawnBackpackDisplay(player, backpack);
+        }, 2L);
     }
 
     private void openBackpackPage(Player player, BackpackHolder holder, int tier) {
