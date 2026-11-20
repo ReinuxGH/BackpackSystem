@@ -7,6 +7,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.ItemDisplay;
+import org.bukkit.entity.Display;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.event.*;
 import org.bukkit.event.inventory.*;
