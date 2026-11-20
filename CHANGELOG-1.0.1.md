@@ -4,6 +4,7 @@
 - Se eliminó el sonido `UI_BUTTON_CLICK` que se reproducía al abrir una mochila.
 - La descripción de la mochila ahora muestra la cantidad de espacios ocupados y hasta tres tipos de objetos almacenados.
 - La descripción se actualiza al abrir y cerrar la mochila.
+- Cada mochila básica fabricada recibe un UUID individual, evitando que varias mochilas compartan el mismo contenido.
 - Se conserva el UUID individual y el almacenamiento persistente por mochila.
 
 ## Alertas conocidas
