@@ -52,7 +52,13 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
     }
 
     @Override public void onDisable() {
-        for (var entry : openInventories.entrySet()) saveContents(entry.getKey(), entry.getValue().getContents());
+        for (var entry : openInventories.entrySet()) {
+            Inventory inventory = entry.getValue();
+            if (inventory.getHolder(false) instanceof BackpackHolder holder) {
+                int tier = tierFromOpenBackpack(holder.backpackId());
+                if (tier >= 0) saveVisiblePage(holder, inventory, tier);
+            }
+        }
         persist();
     }
 
@@ -242,6 +248,17 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         int offset = paged && holder.page() == 1 ? 45 : 0;
         for (int i = 0; i < visible; i++) inventory.setItem(i, all[offset + i]);
         if (paged) {
+            // Reservamos todos los espacios que no son almacenamiento para evitar
+            // que se coloquen objetos en slots que no se guardan.
+            ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
+            ItemMeta fillerMeta = filler.getItemMeta();
+            fillerMeta.setDisplayName(ChatColor.GRAY + " ");
+            filler.setItemMeta(fillerMeta);
+            int firstReservedSlot = visible;
+            for (int slot = firstReservedSlot; slot < 54; slot++) {
+                inventory.setItem(slot, filler);
+            }
+
             ItemStack nav = new ItemStack(Material.ARROW);
             ItemMeta meta = nav.getItemMeta();
             meta.setDisplayName(holder.page() == 0 ? ChatColor.GREEN + "Siguiente página" : ChatColor.YELLOW + "Página anterior");
@@ -267,14 +284,19 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getView().getTopInventory().getHolder(false) instanceof BackpackHolder holder)) return;
-        if (event.getRawSlot() < event.getView().getTopInventory().getSize()) {
+        if (event.getRawSlot() >= 0 && event.getRawSlot() < event.getView().getTopInventory().getSize()) {
             int tier = tierFromOpenBackpack(holder.backpackId());
-            if (tier >= 0 && sizeForTier(tier) > 54 && event.getRawSlot() == 49) {
-                event.setCancelled(true);
-                saveVisiblePage(holder, event.getView().getTopInventory(), tier);
-                holder.page(holder.page() == 0 ? 1 : 0);
-                openBackpackPage((Player) event.getWhoClicked(), holder, tier);
-                return;
+            if (tier >= 0 && sizeForTier(tier) > 54) {
+                int contentSlots = holder.page() == 0 ? 45 : sizeForTier(tier) - 45;
+                if (event.getRawSlot() >= contentSlots) {
+                    event.setCancelled(true);
+                    if (event.getRawSlot() == 49) {
+                        saveVisiblePage(holder, event.getView().getTopInventory(), tier);
+                        holder.page(holder.page() == 0 ? 1 : 0);
+                        openBackpackPage((Player) event.getWhoClicked(), holder, tier);
+                    }
+                    return;
+                }
             }
         }
         ItemStack current = event.getCurrentItem();
@@ -287,7 +309,19 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onInventoryDrag(InventoryDragEvent event) {
-        if (!(event.getView().getTopInventory().getHolder(false) instanceof BackpackHolder)) return;
+        if (!(event.getView().getTopInventory().getHolder(false) instanceof BackpackHolder holder)) return;
+
+        int tier = tierFromOpenBackpack(holder.backpackId());
+        if (tier >= 0 && sizeForTier(tier) > 54) {
+            int contentSlots = holder.page() == 0 ? 45 : sizeForTier(tier) - 45;
+            for (int rawSlot : event.getRawSlots()) {
+                if (rawSlot >= contentSlots && rawSlot < event.getView().getTopInventory().getSize()) {
+                    event.setCancelled(true);
+                    return;
+                }
+            }
+        }
+
         if (!getConfig().getBoolean("settings.prevent-nesting", true)) return;
         for (ItemStack item : event.getNewItems().values()) {
             if (isBackpack(item)) { event.setCancelled(true); break; }
