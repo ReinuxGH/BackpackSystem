@@ -9,6 +9,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.*;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
 import io.papermc.paper.datacomponent.DataComponentTypes;
@@ -223,7 +224,22 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         ItemStack item = event.getItem();
         if (!isBackpack(item)) return;
         event.setCancelled(true);
-        Player player = event.getPlayer();
+        openBackpack(event.getPlayer(), item);
+    }
+
+    /**
+     * La tecla F (intercambiar mano) abre la mochila si está en la mano principal.
+     * Se cancela el intercambio para evitar mover el objeto accidentalmente.
+     */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onSwapHands(PlayerSwapHandItemsEvent event) {
+        ItemStack item = event.getMainHandItem();
+        if (!isBackpack(item)) return;
+        event.setCancelled(true);
+        openBackpack(event.getPlayer(), item);
+    }
+
+    private void openBackpack(Player player, ItemStack item) {
         UUID id = backpackId(item);
         if (currentlyOpen.contains(id)) {
             player.sendMessage(ChatColor.RED + "Esta mochila ya está abierta por otro jugador.");
