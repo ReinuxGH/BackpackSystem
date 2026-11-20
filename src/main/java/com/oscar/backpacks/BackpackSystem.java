@@ -104,7 +104,10 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             event.getInventory().setResult(createBackpack(0, UUID.randomUUID(), event.getView().getPlayer().getName()));
             return;
         }
-        if (!recipe.getKey().getKey().startsWith("upgrade_")) return;
+        String recipeId = recipe.getKey().getKey();
+        // La receta upgrade_module también empieza con "upgrade_", pero fabrica
+        // el módulo universal y no debe pasar por la validación de mejora de mochilas.
+        if (!Set.of("upgrade_iron", "upgrade_gold", "upgrade_diamond", "upgrade_netherite").contains(recipeId)) return;
         ItemStack[] matrix = event.getInventory().getMatrix();
         if (matrix.length != 9) { event.getInventory().setResult(null); return; }
         // Centro superior = módulo; centro = mochila; los otros siete espacios = mineral.
