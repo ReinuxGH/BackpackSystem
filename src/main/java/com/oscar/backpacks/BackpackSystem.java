@@ -115,13 +115,57 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         ItemStack item = new ItemStack(base);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(ChatColor.GOLD + "Mochila " + NAMES[tier]);
-        meta.setLore(List.of(ChatColor.GRAY + "Clic derecho para abrir", ChatColor.DARK_GRAY + "Espacios: " + sizeForTier(tier), ChatColor.DARK_GRAY + "ID: " + id.toString().substring(0, 8)));
+        meta.setLore(backpackLore(id, tier));
         meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, id.toString());
         meta.getPersistentDataContainer().set(tierKey, PersistentDataType.INTEGER, tier);
         // Requiere el paquete de recursos BackpackSystem-Resources.zip.
         meta.setItemModel(new NamespacedKey("backpacks", "backpack_" + TIERS[tier]));
         item.setItemMeta(meta);
         return item;
+    }
+
+    private List<String> backpackLore(UUID id, int tier) {
+        ItemStack[] contents = loadContents(id, sizeForTier(tier));
+        int occupied = 0;
+        List<String> lore = new ArrayList<>();
+        lore.add(ChatColor.GRAY + "Clic derecho para abrir");
+        lore.add(ChatColor.DARK_GRAY + "Espacios: " + sizeForTier(tier));
+        for (ItemStack stack : contents) if (stack != null && stack.getType() != Material.AIR) occupied++;
+        lore.add(ChatColor.GRAY + "Contenido: " + occupied + "/" + sizeForTier(tier) + " espacios");
+        int shown = 0;
+        for (ItemStack stack : contents) {
+            if (stack == null || stack.getType() == Material.AIR) continue;
+            if (shown == 3) { lore.add(ChatColor.DARK_GRAY + "… y más objetos"); break; }
+            ItemMeta stackMeta = stack.getItemMeta();
+            String name = stackMeta != null && stackMeta.hasDisplayName()
+                    ? stackMeta.getDisplayName()
+                    : stack.getType().name().toLowerCase(Locale.ROOT).replace('_', ' ');
+            lore.add(ChatColor.DARK_GRAY + "• " + stack.getAmount() + "x " + name);
+            shown++;
+        }
+        lore.add(ChatColor.DARK_GRAY + "ID: " + id.toString().substring(0, 8));
+        return lore;
+    }
+
+    private void refreshBackpackLore(Player player, UUID id) {
+        PlayerInventory inventory = player.getInventory();
+        ItemStack[] contents = inventory.getStorageContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack candidate = contents[slot];
+            if (id.equals(backpackId(candidate))) {
+                ItemMeta meta = candidate.getItemMeta();
+                meta.setLore(backpackLore(id, tier(candidate)));
+                candidate.setItemMeta(meta);
+                inventory.setItem(slot, candidate);
+            }
+        }
+        ItemStack offhand = inventory.getItemInOffHand();
+        if (id.equals(backpackId(offhand))) {
+            ItemMeta meta = offhand.getItemMeta();
+            meta.setLore(backpackLore(id, tier(offhand)));
+            offhand.setItemMeta(meta);
+            inventory.setItemInOffHand(offhand);
+        }
     }
 
     private int sizeForTier(int tier) {
@@ -181,8 +225,8 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         inventory.setContents(loadContents(id, sizeForTier(t)));
         openInventories.put(id, inventory);
         currentlyOpen.add(id);
+        refreshBackpackLore(player, id);
         player.openInventory(inventory);
-        player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 0.7f, 1.0f);
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -211,6 +255,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         openInventories.remove(holder.backpackId());
         currentlyOpen.remove(holder.backpackId());
         persist();
+        if (event.getPlayer() instanceof Player player) refreshBackpackLore(player, holder.backpackId());
     }
 
     private ItemStack[] loadContents(UUID id, int size) {
