@@ -11,8 +11,8 @@ import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.BlockStateMeta;
-import org.bukkit.block.ShulkerBox;
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import io.papermc.paper.datacomponent.item.ItemContainerContents;
 import org.bukkit.util.io.BukkitObjectInputStream;
 import org.bukkit.util.io.BukkitObjectOutputStream;
 import org.bukkit.persistence.PersistentDataType;
@@ -27,7 +27,7 @@ import java.util.*;
  * El contenido se guarda por UUID en backpacks.yml.
  */
 public final class BackpackSystem extends JavaPlugin implements Listener {
-    private NamespacedKey idKey, tierKey, moduleKey;
+    private NamespacedKey idKey, tierKey, moduleKey, creatorKey;
     private final Map<UUID, Inventory> openInventories = new HashMap<>();
     private final Set<UUID> currentlyOpen = new HashSet<>();
     private File dataFile;
@@ -43,6 +43,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         idKey = new NamespacedKey(this, "backpack_id");
         tierKey = new NamespacedKey(this, "backpack_tier");
         moduleKey = new NamespacedKey(this, "upgrade_module");
+        creatorKey = new NamespacedKey(this, "backpack_creator");
         dataFile = new File(getDataFolder(), "backpacks.yml");
         data = YamlConfiguration.loadConfiguration(dataFile);
         getServer().getPluginManager().registerEvents(this, this);
@@ -84,7 +85,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             upgrade.shape("IMI", "IBI", "III");
             upgrade.setIngredient('I', UPGRADE_MATERIALS[next]);
             upgrade.setIngredient('M', Material.AMETHYST_SHARD);
-            upgrade.setIngredient('B', Material.SHULKER_BOX);
+            upgrade.setIngredient('B', Material.PAPER);
             getServer().addRecipe(upgrade);
         }
     }
@@ -94,7 +95,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         if (!(event.getRecipe() instanceof ShapedRecipe recipe) || !recipe.getKey().getNamespace().equals(getName().toLowerCase(Locale.ROOT))) return;
         if (recipe.getKey().getKey().equals("backpack_basic")) {
             // Cada mochila básica fabricada debe recibir un UUID propio.
-            event.getInventory().setResult(createBackpack(0, UUID.randomUUID()));
+            event.getInventory().setResult(createBackpack(0, UUID.randomUUID(), event.getView().getPlayer().getName()));
             return;
         }
         if (!recipe.getKey().getKey().startsWith("upgrade_")) return;
@@ -115,55 +116,48 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             }
         }
         UUID id = backpackId(bag);
-        event.getInventory().setResult(createBackpack(oldTier + 1, id));
+        event.getInventory().setResult(createBackpack(oldTier + 1, id, backpackCreator(bag)));
     }
 
     public ItemStack createBackpack(int tier, UUID id) {
-        Material base = Material.SHULKER_BOX;
-        ItemStack item = new ItemStack(base);
+        return createBackpack(tier, id, "Servidor");
+    }
+
+    private ItemStack createBackpack(int tier, UUID id, String creator) {
+        // PAPER no puede colocarse como bloque. La vista previa se añade mediante
+        // el componente CONTAINER de Paper, sin convertir la mochila en una shulker.
+        ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(ChatColor.GOLD + "Mochila " + NAMES[tier]);
-        meta.setLore(backpackLore(id, tier));
+        meta.setLore(List.of(ChatColor.GRAY + "Creada por: " + creator));
         meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, id.toString());
         meta.getPersistentDataContainer().set(tierKey, PersistentDataType.INTEGER, tier);
-        // Requiere el paquete de recursos BackpackSystem-Resources.zip.
+        meta.getPersistentDataContainer().set(creatorKey, PersistentDataType.STRING, creator);
         meta.setItemModel(new NamespacedKey("backpacks", "backpack_" + TIERS[tier]));
-        // Minecraft muestra la vista previa nativa de contenido de las cajas de shulker.
-        // La vista previa visual admite 27 espacios; el inventario real sigue guardándose
-        // completo por UUID en backpacks.yml (hasta 45 espacios).
-        if (meta instanceof BlockStateMeta blockMeta && blockMeta.getBlockState() instanceof ShulkerBox shulker) {
-            ItemStack[] stored = loadContents(id, sizeForTier(tier));
-            ItemStack[] preview = new ItemStack[27];
-            System.arraycopy(stored, 0, preview, 0, Math.min(stored.length, preview.length));
-            shulker.getInventory().setContents(preview);
-            blockMeta.setBlockState(shulker);
-            meta = blockMeta;
-        }
         item.setItemMeta(meta);
+
+        // La vista previa viaja dentro del propio objeto: otros jugadores también la ven.
+        // Es solo una copia visual; el inventario real continúa guardándose por UUID en backpacks.yml.
+        List<ItemStack> preview = new ArrayList<>();
+        for (ItemStack stack : loadContents(id, sizeForTier(tier))) {
+            if (stack != null && stack.getType() != Material.AIR) preview.add(stack.clone());
+        }
+        if (!preview.isEmpty()) {
+            item.setData(DataComponentTypes.CONTAINER, ItemContainerContents.containerContents(preview));
+        } else {
+            item.unsetData(DataComponentTypes.CONTAINER);
+        }
         return item;
     }
 
+    private String backpackCreator(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return "Desconocido";
+        String creator = item.getItemMeta().getPersistentDataContainer().get(creatorKey, PersistentDataType.STRING);
+        return creator == null || creator.isBlank() ? "Desconocido" : creator;
+    }
+
     private List<String> backpackLore(UUID id, int tier) {
-        ItemStack[] contents = loadContents(id, sizeForTier(tier));
-        int occupied = 0;
-        List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.GRAY + "Clic derecho para abrir");
-        lore.add(ChatColor.DARK_GRAY + "Espacios: " + sizeForTier(tier));
-        for (ItemStack stack : contents) if (stack != null && stack.getType() != Material.AIR) occupied++;
-        lore.add(ChatColor.GRAY + "Contenido: " + occupied + "/" + sizeForTier(tier) + " espacios");
-        int shown = 0;
-        for (ItemStack stack : contents) {
-            if (stack == null || stack.getType() == Material.AIR) continue;
-            if (shown == 3) { lore.add(ChatColor.DARK_GRAY + "… y más objetos"); break; }
-            ItemMeta stackMeta = stack.getItemMeta();
-            String name = stackMeta != null && stackMeta.hasDisplayName()
-                    ? stackMeta.getDisplayName()
-                    : stack.getType().name().toLowerCase(Locale.ROOT).replace('_', ' ');
-            lore.add(ChatColor.DARK_GRAY + "• " + stack.getAmount() + "x " + name);
-            shown++;
-        }
-        lore.add(ChatColor.DARK_GRAY + "ID: " + id.toString().substring(0, 8));
-        return lore;
+        return List.of(ChatColor.GRAY + "Creada por: Desconocido");
     }
 
     private void refreshBackpackLore(Player player, UUID id) {
@@ -317,7 +311,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
             int t = Arrays.asList(TIERS).indexOf(args[2].toLowerCase(Locale.ROOT));
             if (t < 0) { sender.sendMessage(ChatColor.RED + "Nivel inválido."); return true; }
             int amount = args.length >= 4 ? Math.max(1, Math.min(64, parse(args[3], 1))) : 1;
-            for (int i=0;i<amount;i++) target.getInventory().addItem(createBackpack(t, UUID.randomUUID()));
+            for (int i=0;i<amount;i++) target.getInventory().addItem(createBackpack(t, UUID.randomUUID(), sender instanceof Player p ? p.getName() : "Servidor"));
             sender.sendMessage(ChatColor.GREEN + "Mochila(s) entregada(s) a " + target.getName()); return true;
         }
         sender.sendMessage(ChatColor.RED + "Uso incorrecto. Ejecuta /backpack."); return true;
