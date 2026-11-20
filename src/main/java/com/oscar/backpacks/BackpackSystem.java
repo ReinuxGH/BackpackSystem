@@ -224,6 +224,10 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         if (!isBackpack(item)) return;
         event.setCancelled(true);
         Player player = event.getPlayer();
+        openBackpack(player, item);
+    }
+
+    private void openBackpack(Player player, ItemStack item) {
         UUID id = backpackId(item);
         if (currentlyOpen.contains(id)) {
             player.sendMessage(ChatColor.RED + "Esta mochila ya está abierta por otro jugador.");
@@ -375,8 +379,36 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
     }
 
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("backpack.admin")) { sender.sendMessage(ChatColor.RED + "No tienes permiso."); return true; }
-        if (args.length == 0) { sender.sendMessage(ChatColor.YELLOW + "/backpack give <jugador> <basic|iron|gold|diamond|netherite> [cantidad]"); sender.sendMessage(ChatColor.YELLOW + "/backpack module <jugador> [cantidad]"); return true; }
+        if (args.length > 0 && args[0].equalsIgnoreCase("open")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(ChatColor.RED + "Este comando solo puede usarlo un jugador.");
+                return true;
+            }
+            ItemStack found = null;
+            for (ItemStack item : player.getInventory().getStorageContents()) {
+                if (isBackpack(item)) { found = item; break; }
+            }
+            if (found == null && isBackpack(player.getInventory().getItemInOffHand())) {
+                found = player.getInventory().getItemInOffHand();
+            }
+            if (found == null) {
+                player.sendMessage(ChatColor.RED + "No tienes ninguna mochila en tu inventario.");
+                return true;
+            }
+            openBackpack(player, found);
+            return true;
+        }
+
+        if (!sender.hasPermission("backpack.admin")) {
+            sender.sendMessage(ChatColor.RED + "No tienes permiso para administrar mochilas.");
+            return true;
+        }
+        if (args.length == 0) {
+            sender.sendMessage(ChatColor.YELLOW + "/backpack open");
+            sender.sendMessage(ChatColor.YELLOW + "/backpack give <jugador> <basic|iron|gold|diamond|netherite> [cantidad]");
+            sender.sendMessage(ChatColor.YELLOW + "/backpack module <jugador> [cantidad]");
+            return true;
+        }
         if (args[0].equalsIgnoreCase("reload")) { reloadConfig(); sender.sendMessage(ChatColor.GREEN + "Configuración recargada."); return true; }
         if (args[0].equalsIgnoreCase("module") && args.length >= 2) {
             Player target = Bukkit.getPlayerExact(args[1]);
