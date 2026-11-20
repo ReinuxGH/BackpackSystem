@@ -172,18 +172,14 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack candidate = contents[slot];
             if (id.equals(backpackId(candidate))) {
-                ItemMeta meta = candidate.getItemMeta();
-                meta.setLore(backpackLore(id, tier(candidate)));
-                candidate.setItemMeta(meta);
-                inventory.setItem(slot, candidate);
+                // Actualiza también mochilas de versiones anteriores al nuevo objeto SHULKER_BOX.
+                inventory.setItem(slot, createBackpack(tier(candidate), id));
             }
         }
         ItemStack offhand = inventory.getItemInOffHand();
         if (id.equals(backpackId(offhand))) {
-            ItemMeta meta = offhand.getItemMeta();
-            meta.setLore(backpackLore(id, tier(offhand)));
-            offhand.setItemMeta(meta);
-            inventory.setItemInOffHand(offhand);
+            // Migra también la mochila de la mano secundaria.
+            inventory.setItemInOffHand(createBackpack(tier(offhand), id));
         }
     }
 
