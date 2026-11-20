@@ -250,6 +250,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         }
         openInventories.put(holder.backpackId(), inventory);
         player.openInventory(inventory);
+        currentlyOpen.add(holder.backpackId());
     }
 
     private void saveVisiblePage(BackpackHolder holder, Inventory inventory, int tier) {
