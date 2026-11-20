@@ -34,7 +34,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
     private YamlConfiguration data;
 
     private static final String[] TIERS = {"basic", "iron", "gold", "diamond", "netherite"};
-    private static final int[] DEFAULT_SIZES = {9, 18, 27, 36, 45};
+    private static final int[] DEFAULT_SIZES = {9, 27, 36, 54, 81};
     private static final String[] NAMES = {"Básica", "Hierro", "Oro", "Diamante", "Netherita"};
     private static final Material[] UPGRADE_MATERIALS = {null, Material.IRON_INGOT, Material.GOLD_INGOT, Material.DIAMOND, Material.NETHERITE_INGOT};
 
@@ -48,7 +48,7 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         data = YamlConfiguration.loadConfiguration(dataFile);
         getServer().getPluginManager().registerEvents(this, this);
         registerRecipes();
-        getLogger().info("BackpackSystem activado. Niveles: 9/18/27/36/45.");
+        getLogger().info("BackpackSystem activado. Niveles: 9/27/36/54/81.");
     }
 
     @Override public void onDisable() {
