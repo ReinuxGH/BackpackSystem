@@ -3,10 +3,10 @@ settings:
   prevent-nesting: true
   inventory-title: "Mochila %tier%"
 
-# Capacidades totales. Netherita usa dos páginas (54 + 27).
+ # Capacidades totales. Netherita usa dos páginas de 45 espacios cada una.
 levels:
   basic: 9
   iron: 27
   gold: 36
   diamond: 54
-  netherite: 81
+  netherite: 90
