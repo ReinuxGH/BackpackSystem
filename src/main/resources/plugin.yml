@@ -7,8 +7,7 @@ description: Mochilas con inventario persistente, mejoras y texturas personaliza
 commands:
   backpack:
     description: Administra las mochilas.
-    usage: /backpack <give|module|reload>
-    permission: backpack.admin
+    usage: /backpack <open|give|module|reload>
 permissions:
   backpack.admin:
     description: Permite entregar mochilas y módulos.
