@@ -156,27 +156,6 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         return creator == null || creator.isBlank() ? "Desconocido" : creator;
     }
 
-    private List<String> backpackLore(UUID id, int tier) {
-        return List.of(ChatColor.GRAY + "Creada por: Desconocido");
-    }
-
-    private void refreshBackpackLore(Player player, UUID id) {
-        PlayerInventory inventory = player.getInventory();
-        ItemStack[] contents = inventory.getStorageContents();
-        for (int slot = 0; slot < contents.length; slot++) {
-            ItemStack candidate = contents[slot];
-            if (id.equals(backpackId(candidate))) {
-                // Actualiza también mochilas de versiones anteriores al nuevo objeto SHULKER_BOX.
-                inventory.setItem(slot, createBackpack(tier(candidate), id));
-            }
-        }
-        ItemStack offhand = inventory.getItemInOffHand();
-        if (id.equals(backpackId(offhand))) {
-            // Migra también la mochila de la mano secundaria.
-            inventory.setItemInOffHand(createBackpack(tier(offhand), id));
-        }
-    }
-
     private int sizeForTier(int tier) {
         // Los tamaños se pueden editar en plugins/BackpackSystem/config.yml.
         return getConfig().getInt("levels." + TIERS[tier], DEFAULT_SIZES[tier]);
