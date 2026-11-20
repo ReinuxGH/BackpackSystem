@@ -268,7 +268,6 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getView().getTopInventory().getHolder(false) instanceof BackpackHolder holder)) return;
         if (event.getRawSlot() < event.getView().getTopInventory().getSize()) {
-            BackpackHolder holder = (BackpackHolder) event.getView().getTopInventory().getHolder(false);
             int tier = tierFromOpenBackpack(holder.backpackId());
             if (tier >= 0 && sizeForTier(tier) > 54 && event.getRawSlot() == 49) {
                 event.setCancelled(true);
