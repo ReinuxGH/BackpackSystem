@@ -156,6 +156,25 @@ public final class BackpackSystem extends JavaPlugin implements Listener {
         return creator == null || creator.isBlank() ? "Desconocido" : creator;
     }
 
+    /**
+     * Actualiza el objeto mochila del jugador con una copia reciente de la vista previa.
+     * La copia viaja con el objeto al intercambiarlo o entregarlo a otro jugador.
+     */
+    private void refreshBackpackLore(Player player, UUID id) {
+        PlayerInventory inventory = player.getInventory();
+        ItemStack[] contents = inventory.getStorageContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack candidate = contents[slot];
+            if (id.equals(backpackId(candidate))) {
+                inventory.setItem(slot, createBackpack(tier(candidate), id, backpackCreator(candidate)));
+            }
+        }
+        ItemStack offhand = inventory.getItemInOffHand();
+        if (id.equals(backpackId(offhand))) {
+            inventory.setItemInOffHand(createBackpack(tier(offhand), id, backpackCreator(offhand)));
+        }
+    }
+
     private int sizeForTier(int tier) {
         // Los tamaños se pueden editar en plugins/BackpackSystem/config.yml.
         return getConfig().getInt("levels." + TIERS[tier], DEFAULT_SIZES[tier]);
